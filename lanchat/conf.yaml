@@ -1,0 +1,4 @@
+conf:
+  host: 192.168.32.2 # Chat Server
+  port: 8080
+  type: tcp

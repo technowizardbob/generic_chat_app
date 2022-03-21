@@ -1,0 +1,11 @@
+[Unit]
+Description="Robs Chat Server"
+
+[Service]
+User=nobody
+WorkingDirectory=/opt/chatsrv
+ExecStart=/opt/chatsrv/chat_server
+#Restart=always
+
+[Install]
+WantedBy=multi-user.target

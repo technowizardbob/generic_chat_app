@@ -1,0 +1,30 @@
+$ go build
+## Edit conf.yaml
+host should be the IP or Domain Name of this Chat Server...
+Add as many computers as needed for IP 2 Host Names under allowed:
+
+
+sudo -i
+cd /opt
+mkdir chatsrv
+## Copy chat_server and conf.yaml to the /opt/chatsrv folder
+
+cd /etc/systemd/system
+## Copy robs_chat_srv.service to the /etc/systemd/system/ folder
+
+Reload the service files to include the new service.
+sudo systemctl daemon-reload
+
+Start your service -- HINT type robs_ ((TAB Key))
+sudo systemctl start your-service.service
+
+To check the status of your service
+sudo systemctl status example.service
+
+To enable your service on every reboot
+sudo systemctl enable example.service
+
+To disable your service on every reboot
+sudo systemctl disable example.service
+
+UPDATE firewall rules for port 8080 or whatever ...
