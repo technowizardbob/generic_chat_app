@@ -407,6 +407,8 @@ func Do_connect() bool {
 	return true
 }
 
+var stopDoubleMsgs string
+
 func check_chat() {
 	const debugging_check_chat bool = false
 	if is_connected {
@@ -429,12 +431,13 @@ func check_chat() {
 			}
 
 			tmsg := strings.TrimSpace(message)
-			if tmsg != "" {
+			if tmsg != "" && tmsg != stopDoubleMsgs {
 				if strings.Contains(tmsg, ":") { // Valid Message after Here
 					realMsg := strings.SplitN(tmsg, ":", 2)
 					addRow(userInterface.myList, realMsg[0], realMsg[1])
+					stopDoubleMsgs = tmsg
 					if lastMsg != realMsg[1] {
-						userInterface.window.Deiconify() // UnMinimize
+						userInterface.window.Deiconify() // UnMinimize -- nope, doesn't always do that...
 						userInterface.window.Present()   // Popup on New MSG!
 					}
 				}
