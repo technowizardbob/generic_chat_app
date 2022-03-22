@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Exec=/opt/lanchat/lanchat
+Path=/opt/lanchat
+Name=LanChat
+Comment=LanChat
+Icon=/opt/lanchat/lanchat.png

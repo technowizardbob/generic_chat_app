@@ -19,10 +19,11 @@
     <property name="title" translatable="yes">Lan Chat</property>
     <property name="window_position">center</property>
     <property name="destroy_with_parent">True</property>
-    <property name="icon_name">network-transmit-receive</property>
+    <property name="icon_name">network-workgroup</property>
     <property name="deletable">False</property>
     <property name="gravity">north</property>
     <property name="has_resize_grip">True</property>
+    <signal name="window-state-event" handler="myMainEvent" swapped="no"/>
     <child type="titlebar">
       <placeholder/>
     </child>
@@ -86,6 +87,7 @@
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
                 <property name="enable_grid_lines">both</property>
+                <signal name="size-allocate" handler="treeview_changed" swapped="no"/>
                 <child internal-child="selection">
                   <object class="GtkTreeSelection"/>
                 </child>
@@ -120,18 +122,33 @@
             </child>
             <child>
               <object class="GtkButton" id="myMin">
-                <property name="label" translatable="yes">Minamize</property>
+                <property name="label" translatable="yes">Minimize</property>
                 <property name="width_request">100</property>
                 <property name="height_request">32</property>
-                <property name="sensitive">False</property>
-                <property name="can_focus">False</property>
-                <property name="receives_default">False</property>
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
                 <property name="valign">baseline</property>
                 <property name="image_position">right</property>
-                <signal name="clicked" handler="btnMinamize" swapped="no"/>
+                <signal name="clicked" handler="btnMinimize" swapped="no"/>
               </object>
               <packing>
                 <property name="x">500</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="myConnect">
+                <property name="label" translatable="yes">Connect</property>
+                <property name="width_request">100</property>
+                <property name="height_request">32</property>
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
+                <property name="valign">baseline</property>
+                <signal name="clicked" handler="btnConnect" swapped="no"/>
+              </object>
+              <packing>
+                <property name="x">263</property>
               </packing>
             </child>
           </object>

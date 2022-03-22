@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"io/ioutil"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
-	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +17,9 @@ import (
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 )
+
+// https://pkg.go.dev/github.com/gotk3/gotk3/gtk?utm_source=godoc
+// https://docs.gtk.org/gtk3
 
 const gladeTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!-- Generated with glade 3.22.2 -->
@@ -39,10 +42,11 @@ const gladeTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <property name="title" translatable="yes">Lan Chat</property>
     <property name="window_position">center</property>
     <property name="destroy_with_parent">True</property>
-    <property name="icon_name">network-transmit-receive</property>
+    <property name="icon_name">network-workgroup</property>
     <property name="deletable">False</property>
     <property name="gravity">north</property>
     <property name="has_resize_grip">True</property>
+    <signal name="window-state-event" handler="myMainEvent" swapped="no"/>
     <child type="titlebar">
       <placeholder/>
     </child>
@@ -106,6 +110,7 @@ const gladeTemplate = `<?xml version="1.0" encoding="UTF-8"?>
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
                 <property name="enable_grid_lines">both</property>
+                <signal name="size-allocate" handler="treeview_changed" swapped="no"/>
                 <child internal-child="selection">
                   <object class="GtkTreeSelection"/>
                 </child>
@@ -140,18 +145,33 @@ const gladeTemplate = `<?xml version="1.0" encoding="UTF-8"?>
             </child>
             <child>
               <object class="GtkButton" id="myMin">
-                <property name="label" translatable="yes">Minamize</property>
+                <property name="label" translatable="yes">Minimize</property>
                 <property name="width_request">100</property>
                 <property name="height_request">32</property>
-                <property name="sensitive">False</property>
-                <property name="can_focus">False</property>
-                <property name="receives_default">False</property>
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
                 <property name="valign">baseline</property>
                 <property name="image_position">right</property>
-                <signal name="clicked" handler="btnMinamize" swapped="no"/>
+                <signal name="clicked" handler="btnMinimize" swapped="no"/>
               </object>
               <packing>
                 <property name="x">500</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="myConnect">
+                <property name="label" translatable="yes">Connect</property>
+                <property name="width_request">100</property>
+                <property name="height_request">32</property>
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
+                <property name="valign">baseline</property>
+                <signal name="clicked" handler="btnConnect" swapped="no"/>
+              </object>
+              <packing>
+                <property name="x">263</property>
               </packing>
             </child>
           </object>
@@ -165,19 +185,29 @@ const gladeTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   </object>
 </interface>`
 
+func show_debug_info(info string) {
+	const myDebuggingMode bool = false
+	if myDebuggingMode {
+		fmt.Println(info)
+	}
+}
+
 type GtkUserInterface struct {
-	window   *gtk.Window
-	builder  *gtk.Builder
-	myList   *gtk.ListStore
-	mytxtBox *gtk.Entry
+	window    *gtk.Window
+	builder   *gtk.Builder
+	myList    *gtk.ListStore
+	mytxtBox  *gtk.Entry
+	myConnect *gtk.Button
 }
 
 // you just place them in a map that names the signals, then feed the map to the builder
 var signals = map[string]interface{}{
-	// "btnConnect":  btnConnect,
-	"key_pressed": txtPressed,
-	"btnSend":     btnSend,
-	"btnMinamize": btnMin,
+	"btnConnect":       btnConnect,
+	"myMainEvent":      updatedEvent,
+	"key_pressed":      txtPressed,
+	"btnSend":          btnSend,
+	"btnMinimize":      btnMin,
+	"treeview_changed": updatedTree,
 }
 
 var userInterface *GtkUserInterface
@@ -205,10 +235,6 @@ func createColumn(title string, id int) *gtk.TreeViewColumn {
 
 // Creates a tree view and the list store that holds its data
 func setupTreeView(treeView *gtk.TreeView) *gtk.ListStore {
-	// treeView, err := gtk.TreeViewNew()
-	// if err != nil {
-	// 	log.Fatal("Unable to create tree view:", err)
-	// }
 
 	treeView.AppendColumn(createColumn("User", COLUMN_USERNAME))
 	treeView.AppendColumn(createColumn("Message", COLUMN_MSG))
@@ -238,20 +264,57 @@ func addRow(listStore *gtk.ListStore, username string, message string) {
 	}
 }
 
+func updatedTree() {
+	scroll_obj, scroll_bad := userInterface.builder.GetObject("myScroll")
+	if scroll_bad != nil {
+		log.Fatalln("Couldn't get myScroll")
+	}
+	myScroll := scroll_obj.(*gtk.ScrolledWindow)
+
+	adj := myScroll.GetVAdjustment()
+	myNewSize := adj.GetUpper() - adj.GetPageSize()
+	adj.SetValue(myNewSize)
+}
+
 // looks like handlers can literally be any function or method
+
+func updatedEvent(w *gtk.Window, ev *gdk.Event) bool {
+	var state_of_win gdk.WindowState
+
+	wev := gdk.EventWindowStateNewFromEvent(ev)
+	state_of_win = wev.ChangedMask()
+
+	switch state_of_win {
+	case gdk.WINDOW_STATE_FOCUSED:
+		show_debug_info("focused")
+	case gdk.WINDOW_STATE_ICONIFIED:
+		show_debug_info("Icon")
+	case gdk.WINDOW_STATE_MAXIMIZED:
+		show_debug_info("maximized")
+	default:
+		show_debug_info("Other")
+	}
+
+	return true
+}
+
 func txtPressed(win *gtk.Entry, event *gdk.Event) {
 	keyEvent := gdk.EventKeyNewFromEvent(event)
 	keyVal := keyEvent.KeyVal()
+
+	const mainEnterKey = 65293
+	const keyPadEnterKey = 65421
 	// Enter key will Send Text
-	if keyVal == 65421 || keyVal == 65293 {
+	if keyVal == mainEnterKey || keyVal == keyPadEnterKey {
 		btnSend()
 	}
 }
 
 func btnConnect() {
-	fmt.Println("Trying to connect...")
+	Do_connect()
 }
 
+var lastMsg string // Track this message sent, to make sure it does not unIcon by mistake.
 func btnSend() {
 	data := userInterface.mytxtBox
 	s, e := data.GetText()
@@ -263,13 +326,23 @@ func btnSend() {
 		return
 	}
 	if is_connected {
-		chat_connection.Write([]byte(s + "\n"))
-		data.SetText("")
+		i, wErr := chat_connection.Write([]byte(s + "\n"))
+		if i > 0 && wErr == nil {
+			lastMsg = s
+			data.SetText("") // Empty Chat Box as message was sent, successfully?
+		} else {
+			is_connected = false
+			btn := userInterface.myConnect
+			if btn != nil {
+				set_btn_visiable(btn, true)
+			}
+			show_debug_info("Lost connection.")
+		}
 	}
 }
 
 func btnMin() {
-	userInterface.window.Hide()
+	userInterface.window.Iconify()
 }
 
 func readConf(filename string) (*ChatData, error) {
@@ -295,43 +368,76 @@ type ChatData struct {
 	}
 }
 
-var is_connected bool
+var is_connected bool = false
 var chat_connection net.Conn
 
-func Can_connect() bool {
+func set_btn_visiable(btnCnt *gtk.Button, visiable bool) {
+	btnCnt.SetVisible(visiable)
+}
+
+func sayOnline() {
+	// Bug where you need to send something first, before it is able to get new messages
+	currentTime := time.Now().Format(time.Kitchen)
+	s := "I'm Online at : " + currentTime
+	chat_connection.Write([]byte(s + "\n"))
+	lastMsg = s
+}
+
+func Do_connect() bool {
 	var err error
 	if !is_connected {
 		chat_connection, err = net.Dial(SocketConn.Conf.ConnType, SocketConn.Conf.ConnHost+":"+SocketConn.Conf.ConnPort)
+		btn := userInterface.myConnect
 		if err != nil {
-			fmt.Println("Error connecting:", err.Error())
+			show_debug_info("Error connecting:" + err.Error())
+			if btn != nil {
+				set_btn_visiable(btn, true)
+			}
+			return false
 		} else {
+			sayOnline()
+			show_debug_info("Connected.")
 			is_connected = true
+			if btn != nil {
+				set_btn_visiable(btn, false)
+			}
+			return true
 		}
 	}
-	return false
+	return true
 }
 
 func check_chat() {
+	const debugging_check_chat bool = false
 	if is_connected {
 		go func() {
-			message, _ := bufio.NewReader(chat_connection).ReadString('\n')
+			var opps error
+			var message string
+			if debugging_check_chat {
+				message = "Me:Testing"
+			} else {
+				message, opps = bufio.NewReader(chat_connection).ReadString('\n')
+			}
+
+			if opps != nil {
+				is_connected = false
+				btn := userInterface.myConnect
+				if btn != nil {
+					set_btn_visiable(btn, true)
+				}
+				show_debug_info("Lost Connection.")
+			}
+
 			tmsg := strings.TrimSpace(message)
 			if tmsg != "" {
-				realMsg := strings.Split(tmsg, ":")
-				addRow(userInterface.myList, realMsg[0], realMsg[1])
-				userInterface.window.Show()
-				userInterface.window.GetFocus()
-				/*
-					scroll_obj, scroll_bad := userInterface.builder.GetObject("myScroll")
-					if scroll_bad != nil {
-						log.Fatalln("Couldn't get myScroll")
+				if strings.Contains(tmsg, ":") { // Valid Message after Here
+					realMsg := strings.SplitN(tmsg, ":", 2)
+					addRow(userInterface.myList, realMsg[0], realMsg[1])
+					if lastMsg != realMsg[1] {
+						userInterface.window.Deiconify() // UnMinimize
+						userInterface.window.Present()   // Popup on New MSG!
 					}
-					myScroll := scroll_obj.(*gtk.ScrolledWindow)
-
-					adj := myScroll.GetVAdjustment()
-					myNewSize := adj.GetUpper() - adj.GetPageSize()
-					adj.SetValue(myNewSize)
-				*/
+				}
 			}
 		}()
 	}
@@ -341,6 +447,7 @@ var SocketConn *ChatData
 var nSets = 1
 
 func main() {
+	var app *gtk.Application
 	var cerr error
 	SocketConn, cerr = readConf("conf.yaml")
 	if cerr != nil {
@@ -348,23 +455,35 @@ func main() {
 	}
 
 	const appID = "robs.lanchat"
-	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
-	if err != nil {
-		log.Fatalln("Couldn't create app:", err)
+	const doing_debugging bool = false // If true loads Chat.glade, else uses Template in here...
+
+	var app_err error
+	app, app_err = gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
+	if app_err != nil {
+		log.Fatalln("Couldn't create app:", app_err)
 	}
 
 	// It looks like all builder code must execute in the context of `app`.
 	// If you try creating the builder inside the main function instead of
 	// the `app` "activate" callback, then you will get a segfault
 	app.Connect("activate", func() {
-		builder, err := gtk.BuilderNew()
-		if err != nil {
-			log.Fatalln("Couldn't make builder:", err)
-		}
-		err = builder.AddFromString(gladeTemplate)
-		//builder, err := gtk.BuilderNewFromFile("Chat.glade")
-		if err != nil {
-			log.Fatalln("Couldn't load glade file")
+		var builder *gtk.Builder
+		var build_err error
+		if doing_debugging {
+			builder, build_err = gtk.BuilderNewFromFile("Chat.glade")
+			if build_err != nil {
+				log.Fatalln("Couldn't load glade file")
+			}
+		} else {
+			builder, build_err = gtk.BuilderNew()
+			if build_err != nil {
+				log.Fatalln("Couldn't make new builder:", build_err)
+			}
+
+			template_err := builder.AddFromString(gladeTemplate)
+			if template_err != nil {
+				log.Fatalln("Couldn't add builder from string:", template_err)
+			}
 		}
 
 		builder.ConnectSignals(signals)
@@ -389,29 +508,30 @@ func main() {
 		}
 		myEntry := eobj.(*gtk.Entry)
 
+		btnObj, btnBad := builder.GetObject("myConnect")
+		if btnBad != nil {
+			log.Fatalln("Couldn't get Connect Button")
+		}
+		myBtnConnect := btnObj.(*gtk.Button)
+
 		userInterface = &GtkUserInterface{
-			window:   wnd,
-			builder:  builder,
-			myList:   listStore,
-			mytxtBox: myEntry,
+			window:    wnd,
+			builder:   builder,
+			myList:    listStore,
+			mytxtBox:  myEntry,
+			myConnect: myBtnConnect,
 		}
 
 		wnd.ShowAll()
 		app.AddWindow(wnd)
 
+		Do_connect()
 	})
 
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			if nSets == 1 {
-				glib.IdleAdd(Can_connect)
-			}
 			glib.IdleAdd(check_chat)
-			nSets++
-			if nSets > 300 {
-				nSets = 1
-			}
 		}
 	}()
 
