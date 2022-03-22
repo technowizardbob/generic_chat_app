@@ -8,9 +8,12 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const debuggingMode bool = true
 
 type Allow struct {
 	IpAddress string `yaml:"ip"`
@@ -43,6 +46,15 @@ func readConf(filename string) (*ChatData, error) {
 	return c, nil
 }
 
+func is_array_found(val string, array []string) (ok bool, i int) {
+	for i = range array {
+		if ok = array[i] == val; ok {
+			return
+		}
+	}
+	return
+}
+
 func is_allowed(val string, array []Allow) (ok bool, i int) {
 	for i = range array {
 		if ok = array[i].IpAddress == val; ok {
@@ -52,24 +64,26 @@ func is_allowed(val string, array []Allow) (ok bool, i int) {
 	return
 }
 
-func remove_slice(s []string, r string) []string {
-	for i, v := range s {
-		if v == r {
-			return append(s[:i], s[i+1:]...)
+func remove_slice(slice []string, remove_this string) []string {
+	for i, v := range slice {
+		if v == remove_this {
+			return append(slice[:i], slice[i+1:]...)
 		}
 	}
-	return s
+	return slice
 }
 
-type Person struct {
-	name    string
+var channel chan string // Connections Channel
+var my_hosts []string   // Names of connected Hosts
+
+type AllEventConnections struct {
 	details map[string][]chan string
 }
 
-var person Person
+var AEventConnection AllEventConnections
 
-// AddHandler adds an event listener to the Person struct instance
-func (b *Person) AddHandler(e string, ch chan string) {
+// AddHandler adds an event listener to the AllMyConnections struct instance
+func (b *AllEventConnections) AddHandler(e string, ch chan string) {
 	if b.details == nil {
 		b.details = make(map[string][]chan string)
 	}
@@ -80,8 +94,8 @@ func (b *Person) AddHandler(e string, ch chan string) {
 	}
 }
 
-// RemoveHandler removes an event listener from the Person struct instance
-func (b *Person) RemoveHandler(e string, ch chan string) {
+// RemoveHandler removes an event listener from the AllMyConnections struct instance
+func (b *AllEventConnections) RemoveHandler(e string, ch chan string) {
 	if _, ok := b.details[e]; ok {
 		for i := range b.details[e] {
 			if b.details[e][i] == ch {
@@ -93,7 +107,7 @@ func (b *Person) RemoveHandler(e string, ch chan string) {
 }
 
 // Emit emits an event on the Person struct instance
-func (b *Person) Emit(e string, response string) {
+func (b *AllEventConnections) Emit(e string, response string) {
 	if _, ok := b.details[e]; ok {
 		for _, handler := range b.details[e] {
 			go func(handler chan string) {
@@ -103,8 +117,28 @@ func (b *Person) Emit(e string, response string) {
 	}
 }
 
-var channel chan string
-var my_hosts []string
+func is_offline(msg string, hostName string) bool {
+	s := strings.SplitN(msg, ":", 2) // Seperate host from Message
+	theHost := s[0]
+	theMessage := s[1]
+	if theHost == hostName && (strings.Contains(theMessage, "I'm Offline at") || strings.Contains(theMessage, "I'm out...")) {
+		return true
+	}
+	return false
+}
+
+func retry(c net.Conn, msg string, hostName string, remotePC string) bool {
+	time.Sleep(time.Minute)
+	i, e := c.Write([]byte(msg))
+	if i > 0 && e == nil {
+		fmt.Printf("Retry %s was able to Finally the send MSG to => %s", remotePC, msg)
+		return true
+	} else {
+		fmt.Printf("FAILED %s to Send MSG to => %s", remotePC, msg)
+		deleteConnection(c, hostName, remotePC)
+		return false
+	}
+}
 
 func main() {
 	SocketConn, cerr := readConf("conf.yaml")
@@ -121,12 +155,12 @@ func main() {
 	// Close the listener when the application closes.
 	defer l.Close()
 
-	person = Person{"Me", nil}
+	AEventConnection = AllEventConnections{nil}
 	channel = make(chan string)
 
 	// run loop forever, until exit.
 	for {
-		// Listen for an incoming connection.
+		// Listen/Wait for an incoming connection.
 		c, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error connecting:", err.Error())
@@ -135,57 +169,100 @@ func main() {
 		fmt.Println("Client connected.")
 
 		remotePC := c.RemoteAddr().String()
-		remoteIP := strings.Split(c.RemoteAddr().String(), ":")
+		remoteIP := strings.Split(remotePC, ":") // Needs work for IPv6 Support, I'm guessing...here as delimiting on :
 		// Print client connection address.
 		fmt.Println("Client " + remotePC + " connected.")
 
-		allowed := SocketConn.Hosts.Allowed
-		success, index := is_allowed(remoteIP[0], allowed)
+		allowed := SocketConn.Hosts.Allowed                // Get allowed connections from YAML config
+		success, index := is_allowed(remoteIP[0], allowed) // Check if on allowed list from YAML config
 		if success {
-			hostName := SocketConn.Hosts.Allowed[index].HostName
+			hostName := SocketConn.Hosts.Allowed[index].HostName // What did you name the IP connection in YAML config
+			my_hosts = append(my_hosts, remotePC)
 
-			my_hosts = append(my_hosts, hostName)
-			person.AddHandler(hostName, channel) // Register talk and channel
+			AEventConnection.AddHandler(remotePC, channel) // Register hostName talking and channel
 
+			// Loop through Emits on channel
 			go func() {
 				for {
 					msg := <-channel
-					c.Write([]byte(msg))
+					i, e := c.Write([]byte(msg))
+					if i > 0 && e == nil {
+						fmt.Printf("%s has Got MSG => %s", remotePC, msg)
+					} else {
+						if !is_offline(msg, hostName) {
+							fmt.Printf("%s was UNable to Send MSG to => %s", remotePC, msg)
+							go retry(c, msg, hostName, remotePC)
+							break // Bail, issues
+						} else {
+							deleteConnection(c, hostName, remotePC)
+							break // Bail, issues
+						}
+					}
 				}
 			}()
 
 			// Handle connections concurrently in a new goroutine.
-			go handleConnection(c, hostName)
+			go handleConnection(c, hostName, remotePC)
 		} else {
-			fmt.Println("Termanated Client " + remotePC + " !!")
+			fmt.Println("Termanated unKnown Client " + remotePC + " not on Allowed List!!")
 		}
 	}
-	// person.RemoveHandler("talk", channel)
 }
 
-// handleConnection handles logic for a single connection request.
-func handleConnection(conn net.Conn, hostName string) {
-	// Buffer client input until a newline.
-	buffer, err := bufio.NewReader(conn).ReadBytes('\n')
+func talk(buffer []byte, hostName string) {
+	b := []byte(hostName + ":")
+	data := append(b, buffer...)
+	s := string(data)
+	checkForNL := s[len(s)-1:]
+	if checkForNL != "\n" {
+		s += "\n" // Let's be safe...and add the Delimiting New Line, if not Found!
+	}
 
-	// Close left clients.
-	if err != nil {
-		fmt.Println("Client left.")
-		conn.Close()
-		my_hosts = remove_slice(my_hosts, hostName)
+	// Send response message to the clients.
+	for _, key := range my_hosts {
+		if debuggingMode {
+			log.Printf("Emitting Message to: %s => %s", key, s)
+		}
+		AEventConnection.Emit(key, s)
+	}
+}
+
+var lastDisconnected string
+
+func deleteConnection(conn net.Conn, hostName string, remotePC string) {
+	if lastDisconnected == remotePC {
+		checker, index := is_array_found(remotePC, my_hosts)
+		if checker {
+			log.Fatal("Still Found Sclice @ " + string(index))
+		}
 		return
 	}
 
-	// Print response message, stripping newline character.
-	log.Println("Client message:", string(buffer[:len(buffer)-1]))
+	lastDisconnected = remotePC
+	AEventConnection.RemoveHandler(remotePC, channel)
 
-	b := []byte(hostName + ":")
-	data := append(b, buffer...)
+	my_hosts = remove_slice(my_hosts, remotePC)
 
-	// Send response message to the client.
-	for _, key := range my_hosts {
-		person.Emit(key, string(data))
+	leftMsg := "I'm out...\n"
+	b := []byte(leftMsg) // Include Delimiter LiNe feed...(\n)
+	fmt.Println(leftMsg)
+	talk(b, hostName)
+	conn.Close()
+}
+
+// handleConnection handles logic for a single connection request.
+func handleConnection(conn net.Conn, hostName string, remotePC string) {
+	// Buffer client input until a newline.
+	buffer, err := bufio.NewReader(conn).ReadBytes('\n') // Should include New Line...
+
+	// Close left clients.
+	if err != nil {
+		deleteConnection(conn, hostName, remotePC)
+		return
 	}
+
+	talk(buffer, hostName)
+
 	// Restart the process.
-	handleConnection(conn, hostName)
+	handleConnection(conn, hostName, remotePC)
 }

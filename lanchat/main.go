@@ -375,10 +375,15 @@ func set_btn_visiable(btnCnt *gtk.Button, visiable bool) {
 	btnCnt.SetVisible(visiable)
 }
 
-func sayOnline() {
-	// Bug where you need to send something first, before it is able to get new messages
+func sayStatus(online bool) {
+	var s string
 	currentTime := time.Now().Format(time.Kitchen)
-	s := "I'm Online at : " + currentTime
+	if online {
+		s = "I'm Online at : " + currentTime
+	} else {
+		s = "I'm Offline at : " + currentTime
+	}
+
 	chat_connection.Write([]byte(s + "\n"))
 	lastMsg = s
 }
@@ -387,6 +392,7 @@ func Do_connect() bool {
 	var err error
 	if !is_connected {
 		chat_connection, err = net.Dial(SocketConn.Conf.ConnType, SocketConn.Conf.ConnHost+":"+SocketConn.Conf.ConnPort)
+		// Note: Do not defer closing connection as it will bail out right away!
 		btn := userInterface.myConnect
 		if err != nil {
 			show_debug_info("Error connecting:" + err.Error())
@@ -395,7 +401,7 @@ func Do_connect() bool {
 			}
 			return false
 		} else {
-			sayOnline()
+			sayStatus(true) // Say online @ time + Fixes issue with MSGs not sending out right...
 			show_debug_info("Connected.")
 			is_connected = true
 			if btn != nil {
@@ -539,4 +545,8 @@ func main() {
 	}()
 
 	app.Run(os.Args)
+
+	sayStatus(false) // Say offline @ time
+
+	chat_connection.Close()
 }
