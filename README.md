@@ -1,4 +1,4 @@
-# LANCHAT 
+# Generic LAN CHAT 
 My very first attempts at a generic WINPOPUP 'ish like client for Linux...
 
 ## Made in Go.
